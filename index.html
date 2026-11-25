@@ -16,42 +16,171 @@
 <section class="card"><h2>战场指南</h2><p class="hint">① 选择主动技能石，再点地图空地建塔。<br>② 点击辅助石将其镶入链接槽；部署的塔会继承当前链接。<br>③ 每波结束可获得碎片，击杀敌人也有奖励。<br>④ 按 <span class="kbd">空格</span> 快速开始下一波；右键拆除防御塔。</p></section></aside></main>
 <div class="footnote">灵感来自动作 RPG 的技能石与辅助链接系统 · 祝你守住灯塔</div></div>
 <script>
-(()=>{'use strict';
-const cvs=document.getElementById('game'),ctx=cvs.getContext('2d'),W=960,H=528,C=48,cols=20,rows=11;
-const defs={bolt:{name:'奥术飞弹',icon:'✦',cost:45,range:155,rate:.9,damage:18,color:'#6dc9ff',kind:'projectile',desc:'精准追踪 · 单体打击'},fire:{name:'烈焰爆弹',icon:'🔥',cost:55,range:145,rate:1.35,damage:30,color:'#ff8a4c',kind:'splash',desc:'爆炸范围 · 群体伤害'},frost:{name:'寒霜脉冲',icon:'❄',cost:50,range:135,rate:1.1,damage:13,color:'#8ce8e7',kind:'slow',desc:'冰霜减速 · 控场利器'},chain:{name:'闪电链',icon:'ϟ',cost:65,range:165,rate:1.55,damage:24,color:'#c99cff',kind:'chain',desc:'跳跃电弧 · 连锁打击'},blade:{name:'刃灵召唤',icon:'⚔',cost:60,range:72,rate:.48,damage:14,color:'#f2d879',kind:'melee',desc:'近战守卫 · 快速斩击'}};
-const supps={multi:{name:'多重投射',icon:'⋔',desc:'额外发射 1 枚投射物'},haste:{name:'急速施法',icon:'»',desc:'攻击速度提高 35%'},might:{name:'强力打击',icon:'✹',desc:'伤害提高 45%'},reach:{name:'远距增幅',icon:'◎',desc:'攻击范围提高 25%'},burn:{name:'余烬附着',icon:'♨',desc:'命中后附加灼烧'} };
-const path=[[-24,264],[120,264],[120,120],[360,120],[360,408],[600,408],[600,216],[840,216],[840,312],[984,312]];
-let gold=120,life=20,wave=0,kills=0,selected='bolt',links=[],towers=[],enemies=[],shots=[],particles=[],spawnLeft=0,spawnTimer=0,active=false,intermission=0,speed=1,last=0,gameOver=false;
-const skillsEl=document.getElementById('skills'),suppEl=document.getElementById('supports');
-for(const [id,d] of Object.entries(defs)){const b=document.createElement('button');b.className='skill'+(id===selected?' active':'');b.innerHTML=`<span class="ico">${d.icon}</span><strong>${d.name}</strong><small>${d.cost} 碎片 · ${d.desc}</small>`;b.onclick=()=>{selected=id;document.querySelectorAll('.skill').forEach(x=>x.classList.remove('active'));b.classList.add('active');msg(`已选择 ${d.name}，点击地图部署`)};skillsEl.appendChild(b)}
-for(const [id,s] of Object.entries(supps)){const b=document.createElement('button');b.className='support';b.title=s.desc;b.innerHTML=`${s.icon} ${s.name}`;b.onclick=()=>{if(links.includes(id))links=links.filter(x=>x!==id);else if(links.length<2)links.push(id);else msg('链接槽已满：每座新塔最多连接 2 颗辅助石');renderLinks()};suppEl.appendChild(b)}
-function renderLinks(){document.querySelectorAll('.support').forEach((b,i)=>b.classList.toggle('on',links.includes(Object.keys(supps)[i])));document.getElementById('sockets').innerHTML='<span class="socket filled">✦</span>'+[0,1].map((_,i)=>`<span class="socket ${links[i]?'filled':''}">${links[i]?supps[links[i]].icon:'+'}</span>`).join('');document.getElementById('loadout').textContent=links.length?`当前链接：${links.map(x=>supps[x].name).join(' + ')}`:'未连接辅助石'}renderLinks();
-function msg(s){const e=document.getElementById('toast');e.textContent=s;e.classList.add('show');clearTimeout(msg.t);msg.t=setTimeout(()=>e.classList.remove('show'),1900)}
-function pointOnPath(x,y){for(let i=0;i<path.length-1;i++){let [ax,ay]=path[i],[bx,by]=path[i+1];let d=Math.hypot(bx-ax,by-ay),t=Math.max(0,Math.min(1,((x-ax)*(bx-ax)+(y-ay)*(by-ay))/(d*d)));if(Math.hypot(x-(ax+t*(bx-ax)),y-(ay+t*(by-ay)))<26)return true}return false}
-function canvasPos(e){let r=cvs.getBoundingClientRect();return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height}}
-cvs.addEventListener('click',e=>{if(gameOver)return;let p=canvasPos(e),x=Math.floor(p.x/C)*C+C/2,y=Math.floor(p.y/C)*C+C/2;if(x<24||x>W-24||y<24||y>H-24)return;if(pointOnPath(x,y)){msg('不能在敌人路线上建塔');return}if(towers.some(t=>Math.hypot(t.x-x,t.y-y)<C*.8)){msg('这里已经有一座防御塔');return}let d=defs[selected];if(gold<d.cost){msg('碎片不足，击败敌人获取更多碎片');return}gold-=d.cost;towers.push({x,y,type:selected,links:[...links],cool:Math.random()*.25,flash:0});updateUI()});
-cvs.addEventListener('contextmenu',e=>{e.preventDefault();let p=canvasPos(e),i=towers.findIndex(t=>Math.hypot(t.x-p.x,t.y-p.y)<25);if(i>=0){gold+=Math.floor(defs[towers[i].type].cost*.45);towers.splice(i,1);updateUI();msg('已拆除防御塔，返还部分碎片')}});
-function spawn(){let hp=50+wave*17;enemies.push({x:path[0][0],y:path[0][1],seg:0,progress:0,hp,max:hp,speed:45+Math.min(wave*1.4,22),slow:0,burn:0,phase:Math.random()*6});spawnLeft--;spawnTimer=.72}
-function kill(e){if(e.dead)return;e.dead=true;kills++;gold+=8+Math.floor(wave*.8);for(let i=0;i<7;i++)particles.push({x:e.x,y:e.y,vx:(Math.random()-.5)*95,vy:(Math.random()-.5)*95,life:.45,color:'#ffad72'});updateUI()}
-function shoot(t,target){let d=defs[t.type],mods=t.links,damage=d.damage*(mods.includes('might')?1.45:1),count=mods.includes('multi')&&d.kind!=='melee'?2:1,rate=d.rate*(mods.includes('haste')?.65:1);t.cool=rate;t.flash=.17;for(let i=0;i<count;i++){if(d.kind==='melee'){target.hp-=damage;if(mods.includes('burn'))target.burn=Math.max(target.burn,2.4);particles.push({x:target.x,y:target.y,vx:0,vy:0,life:.22,color:d.color,ring:true});if(target.hp<=0)kill(target)}else shots.push({x:t.x,y:t.y,target,damage,color:d.color,kind:d.kind,slow:d.kind==='slow'?1.5:0,burn:mods.includes('burn')?2.5:0,splash:d.kind==='splash'?43:0,speed:330})}}
-function update(dt){if(gameOver)return;dt=Math.min(dt,.05)*speed;if(active){spawnTimer-=dt;if(spawnLeft>0&&spawnTimer<=0)spawn();if(spawnLeft===0&&enemies.every(e=>e.dead)){active=false;intermission=1.2;gold+=20+wave*3;msg(`第 ${wave} 波完成！奖励 ${20+wave*3} 碎片`);updateUI()}}else if(intermission>0){intermission-=dt;if(intermission<=0){document.getElementById('waveInfo').textContent='下一波已准备就绪。'}}
-for(let e of enemies){if(e.dead)continue;if(e.slow>0)e.slow-=dt;if(e.burn>0){e.burn-=dt;e.hp-=dt*7;if(e.hp<=0){kill(e);continue}}let [ax,ay]=path[e.seg],[bx,by]=path[e.seg+1];let dx=bx-ax,dy=by-ay,len=Math.hypot(dx,dy),sp=e.speed*(e.slow>0?.52:1)*dt;e.progress+=sp/len;e.x=ax+(bx-ax)*e.progress;e.y=ay+(by-ay)*e.progress;if(e.progress>=1){e.seg++;e.progress=0;if(e.seg>=path.length-1){e.dead=true;life--;updateUI();if(life<=0){gameOver=true;msg('灯塔已陷落！点击重新开始再战');document.getElementById('waveBtn').textContent='↻ 重新开始'}}}}}
-for(let t of towers){t.cool-=dt;t.flash=Math.max(0,t.flash-dt);if(t.cool<=0){let d=defs[t.type],range=d.range*(t.links.includes('reach')?1.25:1),target=enemies.filter(e=>!e.dead&&Math.hypot(e.x-t.x,e.y-t.y)<range).sort((a,b)=>a.seg+a.progress-(b.seg+b.progress))[0];if(target)shoot(t,target)}}
-for(let s of shots){if(s.dead)continue;if(!s.target||s.target.dead){s.dead=true;continue}let dx=s.target.x-s.x,dy=s.target.y-s.y,len=Math.hypot(dx,dy),step=s.speed*dt;if(len<=step){let hit=s.target;hit.hp-=s.damage;if(s.slow)hit.slow=Math.max(hit.slow,s.slow);if(s.burn)hit.burn=Math.max(hit.burn,s.burn);if(s.splash)for(let e of enemies)if(!e.dead&&e!==hit&&Math.hypot(e.x-hit.x,e.y-hit.y)<s.splash)e.hp-=s.damage*.6;s.dead=true;particles.push({x:hit.x,y:hit.y,vx:0,vy:0,life:.24,color:s.color,ring:true});if(hit.hp<=0)kill(hit);if(s.splash)for(let e of enemies)if(!e.dead&&e.hp<=0)kill(e)}else{s.x+=dx/len*step;s.y+=dy/len*step}}
-shots=shots.filter(s=>!s.dead);for(let p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt}particles=particles.filter(p=>p.life>0);enemies=enemies.filter(e=>!e.dead||e.hp<=0);if(active)document.getElementById('progress').style.width=`${100*(waveTotal()-spawnLeft)/waveTotal()}%`;else document.getElementById('progress').style.width='0%'}
-function waveTotal(){return 7+wave*3}
-function draw(){ctx.clearRect(0,0,W,H);ctx.fillStyle='#151d22';ctx.fillRect(0,0,W,H);for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){ctx.fillStyle=(x+y)%2?'#1a2429':'#1c272c';ctx.fillRect(x*C,y*C,C,C);ctx.strokeStyle='#253138';ctx.lineWidth=1;ctx.strokeRect(x*C,y*C,C,C)}
-ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();path.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.strokeStyle='#553e2d';ctx.lineWidth=43;ctx.stroke();ctx.strokeStyle='#806041';ctx.lineWidth=34;ctx.stroke();ctx.setLineDash([9,13]);ctx.strokeStyle='#e2ba6c88';ctx.lineWidth=2;ctx.stroke();ctx.setLineDash([]);
-// beacon at route exit
-ctx.fillStyle='#172735';ctx.beginPath();ctx.arc(906,312,29,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#72d9df';ctx.lineWidth=2;ctx.stroke();ctx.fillStyle='#b9ffff';ctx.font='24px sans-serif';ctx.textAlign='center';ctx.fillText('✧',906,320);
-for(let t of towers){let d=defs[t.type],r=d.range*(t.links.includes('reach')?1.25:1);ctx.beginPath();ctx.arc(t.x,t.y,r,0,Math.PI*2);ctx.fillStyle=d.color+'0c';ctx.fill();ctx.strokeStyle=d.color+'22';ctx.lineWidth=1;ctx.stroke();ctx.beginPath();ctx.arc(t.x,t.y,20,0,Math.PI*2);ctx.fillStyle='#18232a';ctx.fill();ctx.strokeStyle=t.flash>0?'#fff':d.color;ctx.lineWidth=2;ctx.stroke();ctx.fillStyle=d.color;ctx.font='20px sans-serif';ctx.textAlign='center';ctx.fillText(d.icon,t.x,t.y+7);for(let i=0;i<t.links.length;i++){ctx.beginPath();ctx.arc(t.x-10+i*20,t.y+25,6,0,Math.PI*2);ctx.fillStyle='#14232b';ctx.fill();ctx.strokeStyle='#73d8df';ctx.stroke();ctx.fillStyle='#a7f3ef';ctx.font='9px sans-serif';ctx.fillText(supps[t.links[i]].icon,t.x-10+i*20,t.y+28)}}
-for(let e of enemies){if(e.dead)continue;ctx.beginPath();ctx.arc(e.x,e.y,12,0,Math.PI*2);ctx.fillStyle=e.burn>0?'#ff8b57':e.slow>0?'#91e8eb':'#d7825b';ctx.fill();ctx.strokeStyle='#ffd2aa';ctx.lineWidth=1.5;ctx.stroke();ctx.fillStyle='#481f20';ctx.fillRect(e.x-13,e.y-20,26,4);ctx.fillStyle='#ed6b64';ctx.fillRect(e.x-13,e.y-20,26*Math.max(0,e.hp/e.max),4);ctx.fillStyle='#3a2521';ctx.font='10px sans-serif';ctx.textAlign='center';ctx.fillText('◆',e.x,e.y+4)}
-for(let s of shots){ctx.beginPath();ctx.arc(s.x,s.y,s.kind==='splash'?5:4,0,Math.PI*2);ctx.fillStyle=s.color;ctx.shadowColor=s.color;ctx.shadowBlur=9;ctx.fill();ctx.shadowBlur=0}for(let p of particles){ctx.globalAlpha=Math.max(0,p.life*2);if(p.ring){ctx.beginPath();ctx.arc(p.x,p.y,12*(1-p.life/.24)+3,0,Math.PI*2);ctx.strokeStyle=p.color;ctx.lineWidth=2;ctx.stroke()}else{ctx.fillStyle=p.color;ctx.fillRect(p.x,p.y,3,3)}ctx.globalAlpha=1}
-if(gameOver){ctx.fillStyle='#090c11bb';ctx.fillRect(0,0,W,H);ctx.fillStyle='#f0c77a';ctx.font='bold 34px sans-serif';ctx.textAlign='center';ctx.fillText('灯塔陷落',W/2,H/2-8);ctx.fillStyle='#d5dfeb';ctx.font='16px sans-serif';ctx.fillText('点击右侧按钮重新开始',W/2,H/2+25)}}
-function updateUI(){document.getElementById('gold').textContent=gold;document.getElementById('life').textContent=life;document.getElementById('wave').textContent=wave;document.getElementById('kills').textContent=kills;document.getElementById('waveBtn').disabled=active&&!gameOver;document.getElementById('waveInfo').textContent=active?`敌群来袭：剩余 ${spawnLeft} 个待出发，场上 ${enemies.filter(e=>!e.dead).length} 个`:'布置防御后，点击开始迎击敌人。'} }
-document.getElementById('waveBtn').onclick=()=>{if(gameOver){gold=120;life=20;wave=0;kills=0;towers=[];enemies=[];shots=[];particles=[];active=false;gameOver=false;intermission=0;updateUI();msg('新的远征开始！');return}if(active)return;wave++;spawnLeft=waveTotal();spawnTimer=0;active=true;document.getElementById('waveBtn').textContent=`⚔ 第 ${wave} 波进行中`;updateUI()};
-document.getElementById('speedBtn').onclick=e=>{speed=speed===1?2:1;e.currentTarget.textContent=`⏩ ${speed}×`};window.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();if(!active&&!gameOver)document.getElementById('waveBtn').click()}});
-function frame(ts){let dt=(ts-last)/1000||0;last=ts;update(dt);draw();if(active)document.getElementById('waveInfo').textContent=`敌群来袭：剩余 ${spawnLeft} 个待出发，场上 ${enemies.filter(e=>!e.dead).length} 个`;if(!gameOver&&document.getElementById('waveBtn').textContent.includes('进行中')&&!active)document.getElementById('waveBtn').textContent=`▶ 开始第 ${wave+1} 波`;requestAnimationFrame(frame)}
-updateUI();requestAnimationFrame(frame);
+'use strict';
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = 960, H = 528, CELL = 48;
+  const definitions = {
+    bolt: {name:'奥术飞弹',icon:'✦',cost:45,range:155,rate:.9,damage:18,color:'#6dc9ff',kind:'projectile',desc:'精准追踪 · 单体打击'},
+    fire: {name:'烈焰爆弹',icon:'🔥',cost:55,range:145,rate:1.35,damage:30,color:'#ff8a4c',kind:'splash',desc:'爆炸范围 · 群体伤害'},
+    frost: {name:'寒霜脉冲',icon:'❄',cost:50,range:135,rate:1.1,damage:13,color:'#8ce8e7',kind:'slow',desc:'冰霜减速 · 控场利器'},
+    chain: {name:'闪电链',icon:'ϟ',cost:65,range:165,rate:1.55,damage:24,color:'#c99cff',kind:'chain',desc:'跳跃电弧 · 连锁打击'},
+    blade: {name:'刃灵召唤',icon:'⚔',cost:60,range:72,rate:.48,damage:14,color:'#f2d879',kind:'melee',desc:'近战守卫 · 快速斩击'}
+  };
+  const supports = {
+    multi:{name:'多重投射',icon:'⋔',desc:'额外发射 1 枚投射物'},
+    haste:{name:'急速施法',icon:'»',desc:'攻击速度提高 35%'},
+    might:{name:'强力打击',icon:'✹',desc:'伤害提高 45%'},
+    reach:{name:'远距增幅',icon:'◎',desc:'攻击范围提高 25%'},
+    burn:{name:'余烬附着',icon:'♨',desc:'命中后附加灼烧'}
+  };
+  const route = [[-24,264],[120,264],[120,120],[360,120],[360,408],[600,408],[600,216],[840,216],[840,312],[984,312]];
+  let gold=120, life=20, wave=0, kills=0, selected='bolt', links=[];
+  let towers=[], enemies=[], projectiles=[], particles=[];
+  let spawnLeft=0, spawnTimer=0, active=false, speed=1, lastTime=0, gameOver=false;
+  const skillList=document.getElementById('skills');
+  const supportList=document.getElementById('supports');
+
+  function notify(text){
+    const toast=document.getElementById('toast');
+    toast.textContent=text; toast.classList.add('show'); clearTimeout(notify.timer);
+    notify.timer=setTimeout(()=>toast.classList.remove('show'),1900);
+  }
+  function updateLinks(){
+    document.querySelectorAll('.support').forEach((button,index)=>button.classList.toggle('on',links.includes(Object.keys(supports)[index])));
+    document.getElementById('sockets').innerHTML='<span class="socket filled">✦</span>'+[0,1].map((_,i)=>`<span class="socket ${links[i]?'filled':''}">${links[i]?supports[links[i]].icon:'+'}</span>`).join('');
+    document.getElementById('loadout').textContent=links.length?'当前链接：'+links.map(id=>supports[id].name).join(' + '):'未连接辅助石';
+  }
+  Object.entries(definitions).forEach(([id,skill])=>{
+    const button=document.createElement('button'); button.className='skill'+(id===selected?' active':'');
+    button.innerHTML=`<span class="ico">${skill.icon}</span><strong>${skill.name}</strong><small>${skill.cost} 碎片 · ${skill.desc}</small>`;
+    button.addEventListener('click',()=>{selected=id;document.querySelectorAll('.skill').forEach(item=>item.classList.remove('active'));button.classList.add('active');notify('已选择 '+skill.name+'，点击地图部署');});
+    skillList.appendChild(button);
+  });
+  Object.entries(supports).forEach(([id,support])=>{
+    const button=document.createElement('button'); button.className='support'; button.title=support.desc; button.textContent=support.icon+' '+support.name;
+    button.addEventListener('click',()=>{if(links.includes(id))links=links.filter(link=>link!==id);else if(links.length<2)links.push(id);else{notify('链接槽已满：每座新塔最多连接 2 颗辅助石');return;}updateLinks();});
+    supportList.appendChild(button);
+  });
+  updateLinks();
+  function onRoute(x,y){
+    for(let i=0;i<route.length-1;i++){
+      const [ax,ay]=route[i],[bx,by]=route[i+1],dx=bx-ax,dy=by-ay;
+      const t=Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy)));
+      if(Math.hypot(x-(ax+t*dx),y-(ay+t*dy))<26)return true;
+    }
+    return false;
+  }
+  function canvasPoint(event){const rect=canvas.getBoundingClientRect();return{x:(event.clientX-rect.left)*W/rect.width,y:(event.clientY-rect.top)*H/rect.height};}
+  canvas.addEventListener('click',event=>{
+    if(gameOver)return;
+    const point=canvasPoint(event),x=Math.floor(point.x/CELL)*CELL+CELL/2,y=Math.floor(point.y/CELL)*CELL+CELL/2;
+    if(x<24||x>W-24||y<24||y>H-24)return;
+    if(onRoute(x,y)){notify('不能在敌人路线上建塔');return;}
+    if(towers.some(tower=>Math.hypot(tower.x-x,tower.y-y)<CELL*.8)){notify('这里已经有一座防御塔');return;}
+    const skill=definitions[selected];
+    if(gold<skill.cost){notify('碎片不足，击败敌人获取更多碎片');return;}
+    gold-=skill.cost;towers.push({x,y,type:selected,links:[...links],cool:Math.random()*.25,flash:0});updateUI();
+  });
+  canvas.addEventListener('contextmenu',event=>{
+    event.preventDefault();const point=canvasPoint(event),index=towers.findIndex(tower=>Math.hypot(tower.x-point.x,tower.y-point.y)<25);
+    if(index>=0){gold+=Math.floor(definitions[towers[index].type].cost*.45);towers.splice(index,1);updateUI();notify('已拆除防御塔，返还部分碎片');}
+  });
+  function updateUI(){
+    document.getElementById('gold').textContent=gold;document.getElementById('life').textContent=life;
+    document.getElementById('wave').textContent=wave;document.getElementById('kills').textContent=kills;
+    document.getElementById('waveInfo').textContent=active?`敌群来袭：剩余 ${spawnLeft} 个待出发，场上 ${enemies.filter(e=>!e.dead).length} 个`:'布置防御后，点击开始迎击敌人。';
+  }
+  function spawn(){
+    const hp=50+wave*17;enemies.push({x:route[0][0],y:route[0][1],segment:0,progress:0,hp,maxHp:hp,speed:45+Math.min(wave*1.4,22),slow:0,burn:0});spawnLeft--;spawnTimer=.72;
+  }
+  function defeat(enemy){
+    if(enemy.dead)return;enemy.dead=true;kills++;gold+=8+Math.floor(wave*.8);
+    for(let i=0;i<7;i++)particles.push({x:enemy.x,y:enemy.y,vx:(Math.random()-.5)*95,vy:(Math.random()-.5)*95,life:.45,color:'#ffad72'});
+  }
+  function fire(tower,target){
+    const skill=definitions[tower.type],mods=tower.links;
+    const damage=skill.damage*(mods.includes('might')?1.45:1),count=mods.includes('multi')&&skill.kind!=='melee'?2:1;
+    tower.cool=skill.rate*(mods.includes('haste')?.65:1);tower.flash=.17;
+    for(let i=0;i<count;i++){
+      if(skill.kind==='melee'){
+        target.hp-=damage;if(mods.includes('burn'))target.burn=Math.max(target.burn,2.4);
+        particles.push({x:target.x,y:target.y,vx:0,vy:0,life:.22,color:skill.color,ring:true});if(target.hp<=0)defeat(target);
+      }else projectiles.push({x:tower.x,y:tower.y,target,damage,color:skill.color,kind:skill.kind,slow:skill.kind==='slow'?1.5:0,burn:mods.includes('burn')?2.5:0,splash:skill.kind==='splash'?43:0,speed:330});
+    }
+  }
+  function update(dt){
+    if(gameOver)return;
+    dt=Math.min(dt,.05)*speed;
+    if(active){
+      spawnTimer-=dt;if(spawnLeft>0&&spawnTimer<=0)spawn();
+      if(spawnLeft===0&&enemies.every(enemy=>enemy.dead)){
+        active=false;gold+=20+wave*3;notify(`第 ${wave} 波完成！奖励 ${20+wave*3} 碎片`);updateUI();
+      }
+    }
+    for(const enemy of enemies){
+      if(enemy.dead)continue;
+      if(enemy.slow>0)enemy.slow-=dt;
+      if(enemy.burn>0){enemy.burn-=dt;enemy.hp-=dt*7;if(enemy.hp<=0){defeat(enemy);continue;}}
+      const [ax,ay]=route[enemy.segment],[bx,by]=route[enemy.segment+1];
+      const length=Math.hypot(bx-ax,by-ay),step=enemy.speed*(enemy.slow>0?.52:1)*dt;
+      enemy.progress+=step/length;enemy.x=ax+(bx-ax)*enemy.progress;enemy.y=ay+(by-ay)*enemy.progress;
+      if(enemy.progress>=1){
+        enemy.segment++;enemy.progress=0;
+        if(enemy.segment>=route.length-1){enemy.dead=true;life--;if(life<=0){gameOver=true;notify('灯塔已陷落！点击重新开始再战');document.getElementById('waveBtn').textContent='↻ 重新开始';}}
+      }
+    }
+    for(const tower of towers){
+      tower.cool-=dt;tower.flash=Math.max(0,tower.flash-dt);
+      if(tower.cool<=0){
+        const skill=definitions[tower.type],range=skill.range*(tower.links.includes('reach')?1.25:1);
+        const target=enemies.filter(enemy=>!enemy.dead&&Math.hypot(enemy.x-tower.x,enemy.y-tower.y)<range).sort((a,b)=>(b.segment+b.progress)-(a.segment+a.progress))[0];
+        if(target)fire(tower,target);
+      }
+    }
+    for(const shot of projectiles){
+      if(shot.dead)continue;if(!shot.target||shot.target.dead){shot.dead=true;continue;}
+      const dx=shot.target.x-shot.x,dy=shot.target.y-shot.y,length=Math.hypot(dx,dy),step=shot.speed*dt;
+      if(length<=step){
+        const hit=shot.target;hit.hp-=shot.damage;if(shot.slow)hit.slow=Math.max(hit.slow,shot.slow);if(shot.burn)hit.burn=Math.max(hit.burn,shot.burn);
+        if(shot.splash)for(const enemy of enemies)if(!enemy.dead&&enemy!==hit&&Math.hypot(enemy.x-hit.x,enemy.y-hit.y)<shot.splash)enemy.hp-=shot.damage*.6;
+        shot.dead=true;particles.push({x:hit.x,y:hit.y,vx:0,vy:0,life:.24,color:shot.color,ring:true});
+        if(hit.hp<=0)defeat(hit);if(shot.splash)for(const enemy of enemies)if(!enemy.dead&&enemy.hp<=0)defeat(enemy);
+      }else{shot.x+=dx/length*step;shot.y+=dy/length*step;}
+    }
+    projectiles=projectiles.filter(shot=>!shot.dead);
+    for(const particle of particles){particle.x+=particle.vx*dt;particle.y+=particle.vy*dt;particle.life-=dt;}
+    particles=particles.filter(particle=>particle.life>0);enemies=enemies.filter(enemy=>!enemy.dead||enemy.hp<=0);
+    document.getElementById('progress').style.width=active?`${100*(waveTotal()-spawnLeft)/waveTotal()}%`:'0%';
+  }
+  function waveTotal(){return 7+wave*3;}
+  function draw(){
+    ctx.clearRect(0,0,W,H);ctx.fillStyle='#151d22';ctx.fillRect(0,0,W,H);
+    for(let y=0;y<11;y++)for(let x=0;x<20;x++){ctx.fillStyle=(x+y)%2?'#1a2429':'#1c272c';ctx.fillRect(x*CELL,y*CELL,CELL,CELL);ctx.strokeStyle='#253138';ctx.strokeRect(x*CELL,y*CELL,CELL,CELL);}
+    ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();route.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.strokeStyle='#553e2d';ctx.lineWidth=43;ctx.stroke();ctx.strokeStyle='#806041';ctx.lineWidth=34;ctx.stroke();ctx.setLineDash([9,13]);ctx.strokeStyle='#e2ba6c88';ctx.lineWidth=2;ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='#172735';ctx.beginPath();ctx.arc(906,312,29,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#72d9df';ctx.lineWidth=2;ctx.stroke();ctx.fillStyle='#b9ffff';ctx.font='24px sans-serif';ctx.textAlign='center';ctx.fillText('✧',906,320);
+    for(const tower of towers){
+      const skill=definitions[tower.type],range=skill.range*(tower.links.includes('reach')?1.25:1);
+      ctx.beginPath();ctx.arc(tower.x,tower.y,range,0,Math.PI*2);ctx.fillStyle=skill.color+'0c';ctx.fill();ctx.strokeStyle=skill.color+'22';ctx.stroke();
+      ctx.beginPath();ctx.arc(tower.x,tower.y,20,0,Math.PI*2);ctx.fillStyle='#18232a';ctx.fill();ctx.strokeStyle=tower.flash>0?'#fff':skill.color;ctx.lineWidth=2;ctx.stroke();ctx.fillStyle=skill.color;ctx.font='20px sans-serif';ctx.fillText(skill.icon,tower.x,tower.y+7);
+      tower.links.forEach((id,index)=>{ctx.beginPath();ctx.arc(tower.x-10+index*20,tower.y+25,6,0,Math.PI*2);ctx.fillStyle='#14232b';ctx.fill();ctx.strokeStyle='#73d8df';ctx.stroke();ctx.fillStyle='#a7f3ef';ctx.font='9px sans-serif';ctx.fillText(supports[id].icon,tower.x-10+index*20,tower.y+28);});
+    }
+    for(const enemy of enemies){
+      if(enemy.dead)continue;ctx.beginPath();ctx.arc(enemy.x,enemy.y,12,0,Math.PI*2);ctx.fillStyle=enemy.burn>0?'#ff8b57':enemy.slow>0?'#91e8eb':'#d7825b';ctx.fill();ctx.strokeStyle='#ffd2aa';ctx.lineWidth=1.5;ctx.stroke();
+      ctx.fillStyle='#481f20';ctx.fillRect(enemy.x-13,enemy.y-20,26,4);ctx.fillStyle='#ed6b64';ctx.fillRect(enemy.x-13,enemy.y-20,26*Math.max(0,enemy.hp/enemy.maxHp),4);ctx.fillStyle='#3a2521';ctx.font='10px sans-serif';ctx.fillText('◆',enemy.x,enemy.y+4);
+    }
+    for(const shot of projectiles){ctx.beginPath();ctx.arc(shot.x,shot.y,shot.kind==='splash'?5:4,0,Math.PI*2);ctx.fillStyle=shot.color;ctx.shadowColor=shot.color;ctx.shadowBlur=9;ctx.fill();ctx.shadowBlur=0;}
+    for(const particle of particles){ctx.globalAlpha=Math.max(0,particle.life*2);if(particle.ring){ctx.beginPath();ctx.arc(particle.x,particle.y,12*(1-particle.life/.24)+3,0,Math.PI*2);ctx.strokeStyle=particle.color;ctx.lineWidth=2;ctx.stroke();}else{ctx.fillStyle=particle.color;ctx.fillRect(particle.x,particle.y,3,3);}ctx.globalAlpha=1;}
+    if(gameOver){ctx.fillStyle='#090c11bb';ctx.fillRect(0,0,W,H);ctx.fillStyle='#f0c77a';ctx.font='bold 34px sans-serif';ctx.fillText('灯塔陷落',W/2,H/2-8);ctx.fillStyle='#d5dfeb';ctx.font='16px sans-serif';ctx.fillText('点击右侧按钮重新开始',W/2,H/2+25);}
+  }
+  document.getElementById('waveBtn').addEventListener('click',()=>{
+    if(gameOver){gold=120;life=20;wave=0;kills=0;towers=[];enemies=[];projectiles=[];particles=[];active=false;gameOver=false;updateUI();notify('新的远征开始！');return;}
+    if(active)return;wave++;spawnLeft=waveTotal();spawnTimer=0;active=true;document.getElementById('waveBtn').textContent=`⚔ 第 ${wave} 波进行中`;updateUI();
+  });
+  document.getElementById('speedBtn').addEventListener('click',event=>{speed=speed===1?2:1;event.currentTarget.textContent=`⏩ ${speed}×`;});
+  window.addEventListener('keydown',event=>{if(event.code==='Space'){event.preventDefault();if(!active&&!gameOver)document.getElementById('waveBtn').click();}});
+  function frame(time){const dt=(time-lastTime)/1000||0;lastTime=time;update(dt);draw();if(active)updateUI();if(!gameOver&&!active&&wave>0)document.getElementById('waveBtn').textContent=`▶ 开始第 ${wave+1} 波`;requestAnimationFrame(frame);}
+  updateUI();requestAnimationFrame(frame);
 })();
 </script></body></html>
