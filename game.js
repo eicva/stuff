@@ -47,6 +47,8 @@
   let wave = 0;
   let kills = 0;
   let selected = 'arrow';
+  let activeTowerCategory = 'arch';
+  let activeSupportGroup = 'range';
   let buildLinks = [];
   let placed = [];
   let enemies = [];
@@ -179,6 +181,7 @@
   function updateSelection() {
     const info = document.getElementById('selectedInfo');
     const button = document.getElementById('applyBtn');
+    button.hidden = !selectedTower;
     if (!selectedTower) {
       info.textContent = `建造选择：${towers[selected].name} · ${towers[selected].cost} 碎片`;
       button.disabled = true;
@@ -192,9 +195,54 @@
     refreshLinks();
   }
 
+  function setTowerCategory(category) {
+    activeTowerCategory = category;
+    const firstTower = Object.entries(towers).find(([, tower]) => tower.category === category);
+    if (firstTower) selected = firstTower[0];
+    document.querySelectorAll('#towerTabs .tab').forEach(tab => {
+      const active = tab.dataset.category === category;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-pressed', String(active));
+    });
+    document.querySelectorAll('.skill').forEach(button => {
+      button.hidden = button.dataset.category !== category;
+      button.classList.toggle('active', button.dataset.id === selected);
+    });
+    updateSelection();
+  }
+
+  function setSupportGroup(group) {
+    activeSupportGroup = group;
+    document.querySelectorAll('#supportTabs .tab').forEach(tab => {
+      const active = tab.dataset.supportGroup === group;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-pressed', String(active));
+    });
+    document.querySelectorAll('.support').forEach(button => {
+      button.hidden = button.dataset.group !== group;
+    });
+  }
+
+  const supportGroups = {
+    reach: 'range', echo: 'range',
+    cast: 'frequency', summon: 'frequency', attack: 'frequency', multishot: 'frequency',
+    might: 'damage', pierce: 'damage', dot: 'damage',
+    poison: 'debuff', fracture: 'debuff', chill: 'debuff', root: 'debuff', expose: 'debuff', burn: 'debuff'
+  };
+
+  document.querySelectorAll('#towerTabs .tab').forEach(tab => {
+    tab.onclick = () => setTowerCategory(tab.dataset.category);
+  });
+  document.querySelectorAll('#supportTabs .tab').forEach(tab => {
+    tab.onclick = () => setSupportGroup(tab.dataset.supportGroup);
+  });
+
   Object.entries(towers).forEach(([id, tower]) => {
     const button = document.createElement('button');
     button.className = `skill${id === selected ? ' active' : ''}`;
+    button.dataset.id = id;
+    button.dataset.category = tower.category;
+    button.hidden = tower.category !== activeTowerCategory;
     button.innerHTML = `<strong>${tower.icon} ${tower.name}</strong><small>${tower.cost} 碎片 · ${tower.desc}</small>`;
     button.onclick = () => {
       selected = id;
@@ -208,6 +256,8 @@
     const button = document.createElement('button');
     button.className = 'support';
     button.dataset.id = id;
+    button.dataset.group = supportGroups[id];
+    button.hidden = supportGroups[id] !== activeSupportGroup;
     button.title = support.desc;
     button.textContent = `${support.icon} ${support.name}`;
     button.onclick = () => {
@@ -783,5 +833,7 @@
   }
   updateUI();
   updateSelection();
+  setTowerCategory(activeTowerCategory);
+  setSupportGroup(activeSupportGroup);
   requestAnimationFrame(frame);
 })();
