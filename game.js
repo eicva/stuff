@@ -25,8 +25,8 @@
   };
 
   const supports = {
-    reach: { name: '远距增幅', icon: '◎', desc: '作用范围 +25%', stat: 'range', value: 0.25 },
-    echo: { name: '广域回响', icon: '◉', desc: '作用范围 +45%', stat: 'range', value: 0.45 },
+    reach: { name: '集中效应', icon: '◎', desc: '作用范围 -25%，伤害 +35%', stats: { range: -0.25, direct: 0.35, dot: 0.35 } },
+    echo: { name: '范围扩张', icon: '◉', desc: '作用范围 +30%，伤害 -20%', stats: { range: 0.3, direct: -0.2, dot: -0.2 } },
     cast: { name: '施法急速', icon: '»', desc: '施法频率 +40%', stat: 'cast', value: 0.4 },
     summon: { name: '召唤增幅', icon: '♙', desc: '召唤频率 +40%，召唤上限 +1', stat: 'cast', value: 0.4, summonCap: 1 },
     attack: { name: '攻击急速', icon: '➤', desc: '攻击频率 +40%', stat: 'attack', value: 0.4 },
@@ -39,7 +39,10 @@
     chill: { name: '冰霜缠绕', icon: '❄', desc: '施加减速', stat: 'debuff', value: 0.3, effect: 'slow' },
     root: { name: '纠缠藤蔓', icon: '♧', desc: '施加短暂定身', stat: 'debuff', value: 0.25, effect: 'root' },
     expose: { name: '精神洞穿', icon: '◉', desc: '施加易伤', stat: 'debuff', value: 0.25, effect: 'vulnerability' },
-    burn: { name: '余烬附着', icon: '♨', desc: '命中后附加燃烧 DoT', stat: 'dot', value: 0.2, effect: 'burn' }
+    burn: { name: '余烬附着', icon: '♨', desc: '命中后附加燃烧 DoT', stat: 'dot', value: 0.2, effect: 'burn' },
+    fireSeed: { name: '火之种', icon: '🔥', desc: '命中时 50% 几率点燃 3 秒；每秒造成该次命中伤害的 20%，最多叠加 5 层', effect: 'fireSeed', value: 1 },
+    iceSeed: { name: '冰之种', icon: '❄', desc: '命中时 50% 几率冰冻 3 秒；冰冻期间受到的伤害提高 10%', effect: 'iceSeed', value: 1 },
+    lightningSeed: { name: '雷之种', icon: 'ϟ', desc: '命中时 50% 几率感电 3 秒；感电敌人被击中时释放闪电，造成施加感电那次命中伤害的 50%，连锁 3 次', effect: 'lightningSeed', value: 1 }
   };
 
   let gold = 150;
@@ -94,7 +97,8 @@
       if (!support) continue;
       seen[id] = (seen[id] || 0) + 1;
       const stack = seen[id] === 2 ? 1.35 : 1;
-      stats[support.stat] += support.value * stack;
+      const modifiers = support.stats || (support.stat ? { [support.stat]: support.value } : {});
+      for (const [stat, value] of Object.entries(modifiers)) stats[stat] = (stats[stat] || 0) + value * stack;
       if (support.arrows) stats.arrows += support.arrows * stack;
       if (support.summonCap) stats.summonCap += support.summonCap;
       if (support.effect) stats.effects[support.effect] = (stats.effects[support.effect] || 0) + support.value * stack;
@@ -131,7 +135,7 @@
     const aura = tower.category === 'support' ? { range: 0, cast: 0, attack: 0, direct: 0, dot: 0, debuff: 0 } : auraBonuses(tower);
     const merge = stat => softBonus(links[stat] + aura[stat]);
     return {
-      range: tower.range * (1 + merge('range')),
+      range: tower.range * Math.max(0.3, 1 + merge('range')),
       cast: merge('cast'),
       attack: merge('attack'),
       direct: merge('direct'),
@@ -150,16 +154,14 @@
 
   function refreshLinks() {
     const sockets = document.getElementById('sockets');
-    const towerAcceptsLinks = !selectedTower || !['poisonAura', 'frostAura'].includes(selectedTower.kind);
-    const buildAcceptsLinks = !['poisonAura', 'frostAura'].includes(towers[selected].kind);
-    const activeLinks = selectedTower ? (towerAcceptsLinks ? selectedTower.links : []) : (buildAcceptsLinks ? buildLinks : []);
+    const activeLinks = selectedTower ? selectedTower.links : buildLinks;
     sockets.innerHTML = '';
     for (let i = 0; i < 4; i++) {
       const button = document.createElement('button');
       button.className = `socket${activeLinks[i] ? ' filled' : ''}`;
       button.title = activeLinks[i] ? `移除 ${supports[activeLinks[i]].name}` : `链接槽 ${i + 1}`;
       button.textContent = activeLinks[i] ? supports[activeLinks[i]].icon : '+';
-      button.disabled = !activeLinks[i] || !towerAcceptsLinks;
+      button.disabled = !activeLinks[i];
       button.onclick = () => {
         activeLinks.splice(i, 1);
         refreshLinks();
@@ -169,13 +171,11 @@
     }
     document.querySelectorAll('.support').forEach(button => {
       button.classList.toggle('on', activeLinks.includes(button.dataset.id));
-      button.disabled = selectedTower ? !towerAcceptsLinks : !buildAcceptsLinks;
+      button.disabled = false;
     });
     document.getElementById('loadout').textContent = activeLinks.length
       ? `${selectedTower ? '该塔链接' : '新建塔配置'}：${activeLinks.map(id => supports[id].name).join(' + ')}`
-      : selectedTower && !towerAcceptsLinks ? '减益光环塔不接收链接辅助石'
-        : !selectedTower && !buildAcceptsLinks ? '减益光环塔不接收链接辅助石'
-          : selectedTower ? '该塔没有链接辅助石' : '未设置新建塔辅助石';
+      : selectedTower ? '该塔没有链接辅助石' : '未设置新建塔辅助石';
   }
 
   function updateSelection() {
@@ -227,8 +227,17 @@
     reach: 'range', echo: 'range',
     cast: 'frequency', summon: 'frequency', attack: 'frequency', multishot: 'frequency',
     might: 'damage', pierce: 'damage', dot: 'damage',
-    poison: 'debuff', fracture: 'debuff', chill: 'debuff', root: 'debuff', expose: 'debuff', burn: 'debuff'
+    poison: 'debuff', fracture: 'debuff', chill: 'debuff', root: 'debuff', expose: 'debuff', burn: 'debuff',
+    fireSeed: 'element', iceSeed: 'element', lightningSeed: 'element'
   };
+
+  const elementTab = document.createElement('button');
+  elementTab.className = 'tab';
+  elementTab.dataset.supportGroup = 'element';
+  elementTab.setAttribute('aria-pressed', 'false');
+  elementTab.textContent = '元素';
+  document.getElementById('supportTabs').appendChild(elementTab);
+  document.getElementById('supportTabs').style.gridTemplateColumns = 'repeat(5, minmax(0, 1fr))';
 
   document.querySelectorAll('#towerTabs .tab').forEach(tab => {
     tab.onclick = () => setTowerCategory(tab.dataset.category);
@@ -261,11 +270,6 @@
     button.title = support.desc;
     button.textContent = `${support.icon} ${support.name}`;
     button.onclick = () => {
-      if ((selectedTower && ['poisonAura', 'frostAura'].includes(selectedTower.kind)) ||
-          (!selectedTower && ['poisonAura', 'frostAura'].includes(towers[selected].kind))) {
-        notify('减益光环塔不接收链接辅助石');
-        return;
-      }
       const links = selectedTower ? selectedTower.links : buildLinks;
       if (links.length >= 4) {
         notify('链接槽最多 4 颗辅助石');
@@ -328,7 +332,7 @@
     const type = towers[selected];
     if (gold < type.cost) return notify('碎片不足');
     gold -= type.cost;
-    const links = ['poisonAura', 'frostAura'].includes(type.kind) ? [] : [...buildLinks];
+    const links = [...buildLinks];
     placed.push({ x, y, type: selected, category: type.category, kind: type.kind, range: type.range, links, cool: Math.random() * 0.25, flash: 0, minions: [] });
     updateSelection();
     updateUI();
@@ -357,7 +361,7 @@
     selectedTower.category = type.category;
     selectedTower.kind = type.kind;
     selectedTower.range = type.range || 0;
-    selectedTower.links = ['poisonAura', 'frostAura'].includes(type.kind) ? [] : [...buildLinks];
+    selectedTower.links = [...buildLinks];
     selectedTower.cool = 0;
     selectedTower.minions = [];
     updateSelection();
@@ -372,7 +376,9 @@
     enemies.push({
       x: route[0][0], y: route[0][1], segment: 0, progress: 0, hp, maxHp: hp,
       def: 14 + 4.2 * wave, speed: (0.07 + Math.min(wave * 0.003, 0.09)) * C,
-      slow: 0, root: 0, vulnerability: 0, vulnerabilityTime: 0, armorBreak: 0, armorBreakTime: 0, burn: 0, poison: 0, burnPower: 1, poisonPower: 1, dead: false, elite
+      slow: 0, root: 0, freeze: 0, shock: 0, shockDamage: 0, igniteStacks: [],
+      vulnerability: 0, vulnerabilityTime: 0, armorBreak: 0, armorBreakTime: 0, burn: 0, poison: 0,
+      burnPower: 1, poisonPower: 1, dead: false, elite
     });
     spawnLeft--;
     spawnedInBatch++;
@@ -389,13 +395,21 @@
   }
 
   function damage(raw, enemy, options = {}) {
-    if (enemy.dead || raw <= 0) return;
+    if (enemy.dead || raw <= 0) return 0;
+    if (options.alreadyMitigated) {
+      const vulnerability = Math.max(0, enemy.vulnerability + (enemy.freeze > 0 ? 0.1 : 0) + (options.vulnerability || 0));
+      const actual = raw * (1 + vulnerability);
+      enemy.hp -= actual;
+      if (enemy.hp <= 0) defeat(enemy);
+      return actual;
+    }
     const penetration = Math.min(0.8, (options.penetration || 0) + (enemy.armorBreak || 0));
-    const vulnerability = Math.max(0, enemy.vulnerability + (options.vulnerability || 0));
+    const vulnerability = Math.max(0, enemy.vulnerability + (enemy.freeze > 0 ? 0.1 : 0) + (options.vulnerability || 0));
     const K = 90 + 6 * wave;
     const actual = raw * (1 + vulnerability) * K / (K + enemy.def * (1 - penetration));
     enemy.hp -= actual;
     if (enemy.hp <= 0) defeat(enemy);
+    return actual;
   }
 
   function applyDebuff(enemy, effect, strength, towerStats) {
@@ -412,6 +426,10 @@
       enemy.poison = Math.max(enemy.poison, 3 * power);
       enemy.vulnerability = Math.max(enemy.vulnerability, 0.15 * power);
       enemy.poisonPower = Math.max(enemy.poisonPower || 0, 1 + (towerStats.dot || 0));
+    }
+    if (effect === 'iceSeed') enemy.freeze = Math.max(enemy.freeze, 3);
+    if (effect === 'lightningSeed') {
+      enemy.shock = Math.max(enemy.shock, 3);
     }
     if (effect === 'vulnerability' || effect === 'poison') {
       enemy.vulnerabilityTime = Math.max(enemy.vulnerabilityTime || 0, 1.5 * power);
@@ -433,6 +451,53 @@
     }
     points.push({ x: x2, y: y2 });
     return { points, life: 0.19, maxLife: 0.19 };
+  }
+
+  function triggerShock(enemy) {
+    if (enemy.dead || enemy.shock <= 0 || enemy.shockDamage <= 0) return;
+    const hitList = [enemy];
+    let lastHit = enemy;
+    for (let i = 0; i < 3; i++) {
+      const next = enemies.filter(candidate => !candidate.dead && !hitList.includes(candidate) && distance(candidate, lastHit) < 92)
+        .sort((a, b) => distance(a, lastHit) - distance(b, lastHit))[0];
+      if (!next) break;
+      damage(enemy.shockDamage * 0.5, next, { alreadyMitigated: true });
+      arcs.push(makeArc(lastHit.x, lastHit.y, next.x, next.y));
+      hitList.push(next);
+      lastHit = next;
+    }
+  }
+
+  function applyHitEffects(enemy, hitDamage, effects, towerStats) {
+    if (enemy.dead) return;
+    for (const [effect, strength] of Object.entries(effects)) {
+      if (effect === 'fireSeed') {
+        const chance = 1 - Math.pow(0.5, strength);
+        if (Math.random() < chance) {
+          const stacks = enemy.igniteStacks;
+          const ignite = { time: 3, damage: hitDamage * 0.2 * Math.max(0, 1 + (towerStats.dot || 0)) };
+          if (stacks.length < 5) stacks.push(ignite);
+          else {
+            const oldest = stacks.reduce((earliest, stack, index) => stack.time < stacks[earliest].time ? index : earliest, 0);
+            stacks[oldest] = ignite;
+          }
+        }
+      } else if (effect === 'iceSeed' || effect === 'lightningSeed') {
+        if (Math.random() < 1 - Math.pow(0.5, strength)) {
+          applyDebuff(enemy, effect, strength, towerStats);
+          if (effect === 'lightningSeed') enemy.shockDamage = hitDamage;
+        }
+      } else {
+        applyDebuff(enemy, effect, strength, towerStats);
+      }
+    }
+  }
+
+  function hitEnemy(enemy, raw, options, effects, towerStats) {
+    if (enemy.shock > 0) triggerShock(enemy);
+    const hitDamage = damage(raw, enemy, options);
+    applyHitEffects(enemy, hitDamage, effects, { ...towerStats, hitDamage });
+    return hitDamage;
   }
 
   function fire(tower, target, stats) {
@@ -463,10 +528,9 @@
       }
       let from = { x: tower.x, y: tower.y };
       for (const enemy of hitList) {
-        damage(raw, enemy, { penetration: stats.penetration });
+        hitEnemy(enemy, raw, { penetration: stats.penetration }, debuffs, stats);
         arcs.push(makeArc(from.x, from.y, enemy.x, enemy.y));
         from = enemy;
-        for (const [effect, strength] of Object.entries(debuffs))         applyDebuff(enemy, effect, strength, stats);
       }
       return;
     }
@@ -503,7 +567,8 @@
         .slice(0, AURA_CAP);
       for (const item of effects) {
         const effect = item.tower.kind === 'poisonAura' ? 'poison' : 'slow';
-        applyDebuff(enemy, effect, item.strength * 0.35, { debuff: 0 });
+        const stats = statsFor(item.tower);
+        applyDebuff(enemy, effect, item.strength * 0.35, stats);
       }
     }
   }
@@ -532,6 +597,8 @@
       if (enemy.dead) continue;
       if (enemy.slow > 0) enemy.slow -= dt;
       if (enemy.root > 0) enemy.root -= dt;
+      if (enemy.freeze > 0) enemy.freeze -= dt;
+      if (enemy.shock > 0) enemy.shock -= dt;
       if (enemy.vulnerabilityTime > 0) {
         enemy.vulnerabilityTime -= dt;
         if (enemy.vulnerabilityTime <= 0) enemy.vulnerability = 0;
@@ -548,8 +615,14 @@
         enemy.poison -= dt;
         damage(5 * dt * enemy.poisonPower, enemy);
       }
+      for (const ignite of enemy.igniteStacks) {
+        const tick = Math.min(dt, ignite.time);
+        if (tick > 0) damage(ignite.damage * tick, enemy, { alreadyMitigated: true });
+        ignite.time -= dt;
+      }
+      enemy.igniteStacks = enemy.igniteStacks.filter(ignite => ignite.time > 0);
       if (enemy.dead) continue;
-      if (enemy.root > 0) continue;
+      if (enemy.root > 0 || enemy.freeze > 0) continue;
       const [ax, ay] = route[enemy.segment];
       const [bx, by] = route[enemy.segment + 1];
       const length = Math.hypot(bx - ax, by - ay);
@@ -594,8 +667,7 @@
               minion.x += dx / d * 105 * dt;
               minion.y += dy / d * 105 * dt;
             } else if (minion.cool <= 0) {
-              damage(type.damage * (1 + stats.direct), minion.target, { penetration: stats.penetration });
-              for (const [effect, strength] of Object.entries(stats.effects)) applyDebuff(minion.target, effect, strength, stats);
+              hitEnemy(minion.target, type.damage * (1 + stats.direct), { penetration: stats.penetration }, stats.effects, stats);
               minion.cool = 0.55 / (1 + minionRate);
             }
           }
@@ -628,15 +700,12 @@
       const step = projectile.speed * dt;
       if (length <= step) {
         const hit = projectile.target;
-        damage(projectile.damage, hit, { penetration: projectile.penetration });
+        hitEnemy(hit, projectile.damage, { penetration: projectile.penetration }, projectile.effects, { debuff: projectile.debuffStrength, dot: projectile.dotBonus });
         if (projectile.slow) hit.slow = Math.max(hit.slow, projectile.slow);
-        for (const [effect, strength] of Object.entries(projectile.effects)) {
-          applyDebuff(hit, effect, strength, { debuff: projectile.debuffStrength, dot: projectile.dotBonus });
-        }
         if (projectile.kind === 'splash') {
           for (const enemy of enemies) {
             if (!enemy.dead && enemy !== hit && distance(enemy, hit) < projectile.splash) {
-              damage(projectile.damage * 0.6, enemy, { penetration: projectile.penetration });
+              hitEnemy(enemy, projectile.damage * 0.6, { penetration: projectile.penetration }, projectile.effects, { debuff: projectile.debuffStrength, dot: projectile.dotBonus });
             }
           }
         }
@@ -747,7 +816,7 @@
       if (enemy.dead) continue;
       ctx.beginPath();
       ctx.arc(enemy.x, enemy.y, enemy.elite ? 14 : 12, 0, Math.PI * 2);
-      ctx.fillStyle = enemy.burn > 0 ? '#ff8b57' : enemy.poison > 0 ? '#8cdb77' : enemy.slow > 0 ? '#91e8eb' : '#d7825b';
+      ctx.fillStyle = enemy.freeze > 0 ? '#a4f3ff' : enemy.shock > 0 ? '#d6a5ff' : enemy.burn > 0 || enemy.igniteStacks.length ? '#ff8b57' : enemy.poison > 0 ? '#8cdb77' : enemy.slow > 0 ? '#91e8eb' : '#d7825b';
       ctx.fill();
       ctx.strokeStyle = enemy.elite ? '#f0d26c' : '#ffd2aa';
       ctx.lineWidth = 1.5;
